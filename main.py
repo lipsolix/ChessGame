@@ -1,5 +1,11 @@
 import copy
+import threading
+import queue
 
+def inv_team(team):
+    if team == "white":
+        return "black"
+    return "white"
 
 class Figure:
 
@@ -13,7 +19,8 @@ class King(Figure):
         super().__init__()
         self.possible_turns = []
         self.color = color
-        self.cost = 15
+        self.cost = 100
+
 
     def get_possible_turns(self,chessboard, x, y):
         self.possible_turns = []
@@ -25,6 +32,7 @@ class King(Figure):
                             self.possible_turns.append((x+i, y+j))
                         elif chessboard[y+j][x+i].color != self.color:
                             self.possible_turns.append((x+i, y+j))
+
         return self.possible_turns
 
 
@@ -77,8 +85,6 @@ class Queen(Figure):
                     self.possible_turns.append((x, y-i))
                     break
 
-        def get_possible_turns(self, chessboard, x, y):
-            self.possible_turns = []
         for i in (-1, 1):
             for j in (-1, 1):
                 for k in range(1, 8):
@@ -230,19 +236,19 @@ class Table:
     def init(self):
         self.table = [[None for i in range(8)] for i in range(8)]
 
-        ###Kings Короли
+        ###Kings ������
         k = King(color='white')
         self.table[7][4] = k
         k = King(color="black")
         self.table[0][4] = k
 
-        ###Queens Ферзи
+        ###Queens �����
         q = Queen(color="white")
         self.table[7][3] = q
         q = Queen(color="black")
         self.table[0][3] = q
 
-        ###Knights Кони
+        ###Knights ����
         n = Knight(color="white")
         self.table[7][1] = n
         n = Knight(color="black")
@@ -253,7 +259,7 @@ class Table:
         self.table[0][6] = n
 
 
-        ###Rooks Ладьи
+        ###Rooks �����
         r = Rook(color="white")
         self.table[7][0] = r
         r = Rook(color="black")
@@ -263,7 +269,7 @@ class Table:
         r = Rook(color="black")
         self.table[0][7] = r
 
-        ###Bishops Слоны
+        ###Bishops �����
         b = Bishop(color="white")
         self.table[7][2] = b
         b = Bishop(color="white")
@@ -274,7 +280,7 @@ class Table:
         self.table[0][5] = b
 
 
-        ###Pawns Пешки
+        ###Pawns �����
         for i in range(8):
             p = Pawn(color="black")
             self.table[1][i] = p
@@ -282,6 +288,11 @@ class Table:
             p = Pawn(color="white")
             self.table[6][i] = p
 
+def king_position(chessboard, team):
+    for y in range(8):
+        for x in range(8):
+            if isinstance(chessboard[y][x], King) and (chessboard[y][x].color == team):
+                return x, y
 
 def show_table(x):
     for i in range(8):
@@ -294,8 +305,62 @@ def show_table(x):
         print(end='\n')
 
 
+def run_simulation(chessboard, buffer, team, depth, fx, fy, tx, ty):
+    
+    if (depth == 0):
+        buffer.put((0, fx, fy, tx, ty))
+        return
+    new_chessboard = copy.deepcopy(chessboard)
+    
+    if new_chessboard[ty][tx] is None:
+        turn_cost = 0
+    else:
+        turn_cost = new_chessboard[ty][tx].cost
+    if fx != -1:
+        new_chessboard[ty][tx] = new_chessboard[fy][fx]
+        new_chessboard[fy][fx] = None
+        new_chessboard[ty][tx].cost += 1
+    kx, ky = king_position(new_chessboard, inv_team(team))
+    p_turns = []
+    for y in range(8):
+        for x in range(8):
+            figure = new_chessboard[y][x]
+            if figure is None:
+                continue
+            if figure.color != team:
+                continue
+            turns = figure.get_possible_turns(new_chessboard, x, y)
+            for turn in turns:
+                tx, ty = turn
+                p_turns.append((x, y, tx, ty))
+                if (kx == tx) and (ky == ty):
+                    buffer.put(None)
+                    return
+    new_buffer = queue.Queue(0)
+    for turn in p_turns:
+        threading.Thread(target=run_simulation, args=(new_chessboard, new_buffer, inv_team(team), depth - 1, *turn)).start()
+    max_impact = -100000000
+    max_impact_turn = None
+    for i in range(len(p_turns)):
+        data = new_buffer.get()
+        if data is not None:
+            points, *turn = data
+            if max_impact < (turn_cost - points):
+                max_impact = turn_cost - points
+                max_impact_turn = turn
+    buffer.put((max_impact, *max_impact_turn))
+    return max_impact_turn
+
+def predict(chessboard, team, depth):
+    q = queue.Queue(0)
+    return run_simulation(chessboard, q, team, depth, -1, -1, -1,-1)
+
 table = Table()
 table.init()
 chessboard = table.get()
 
 show_table(chessboard)
+x = predict(chessboard, "white", 3)
+
+print(x)
+
